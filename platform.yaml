@@ -9,7 +9,7 @@ system:
   node-id: 1
   session-ttl: 720h
   timezone: Asia/Shanghai
-  public-url: https://api.example.com
+  public-url: ${FITNESS_PUBLIC_URL}
   admin-key: "${FITNESS_ADMIN_KEY}"
   db:
     driver: postgres
@@ -31,7 +31,7 @@ system:
     local:
       store-path: /data/fitness/uploads
   wechat:
-    app-id:   
+    app-id: ${WECHAT_APP_ID}
     app-secret: ${WECHAT_APP_SECRET}
     reminder-template-id: ${WECHAT_REMINDER_TEMPLATE_ID}
     reminder-page: pages/index/index

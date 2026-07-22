@@ -239,10 +239,11 @@ func (a *API) DownloadFile(c *gin.Context) {
 }
 
 type mediaCallback struct {
-	TraceID string `json:"trace_id"`
+	Event   string `json:"Event" xml:"Event"`
+	TraceID string `json:"trace_id" xml:"trace_id"`
 	Result  struct {
-		Suggest string `json:"suggest"`
-	} `json:"result"`
+		Suggest string `json:"suggest" xml:"suggest"`
+	} `json:"result" xml:"result"`
 }
 
 func (a *API) VerifyMediaCallback(c *gin.Context) {
@@ -265,15 +266,14 @@ func (a *API) MediaCallback(c *gin.Context) {
 		return
 	}
 	var callback mediaCallback
-	if err := c.ShouldBindJSON(&callback); err != nil || callback.TraceID == "" {
+	if err := c.ShouldBind(&callback); err != nil || callback.TraceID == "" ||
+		(callback.Event != "" && callback.Event != "wxa_media_check") {
 		c.Status(http.StatusBadRequest)
 		return
 	}
 	status := sysstoragefile.AuditStatusRejected
 	if callback.Result.Suggest == "pass" {
 		status = sysstoragefile.AuditStatusApproved
-	} else if callback.Result.Suggest == "review" {
-		status = sysstoragefile.AuditStatusPending
 	}
 	files, err := shared.EntClient.SysStorageFile.Query().
 		Where(sysstoragefile.AuditTraceIDEQ(callback.TraceID)).All(c)
@@ -286,7 +286,8 @@ func (a *API) MediaCallback(c *gin.Context) {
 		fileIDs = append(fileIDs, file.ID)
 	}
 	if len(fileIDs) == 0 {
-		c.String(http.StatusOK, "success")
+		shared.Logger.Warnf("image security callback arrived before trace was persisted: %s", callback.TraceID)
+		c.Status(http.StatusServiceUnavailable)
 		return
 	}
 	tx, err := shared.EntClient.Tx(c)

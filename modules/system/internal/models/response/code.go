@@ -16,4 +16,5 @@ var (
 	ContentRejected         = ginResp.Code(ModuleFitness, "009")
 	ReminderRateLimited     = ginResp.Code(ModuleFitness, "010")
 	SubscriptionUnavailable = ginResp.Code(ModuleFitness, "011")
+	ContentReviewPending    = ginResp.Code(ModuleFitness, "012")
 )

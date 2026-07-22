@@ -129,7 +129,7 @@ func (s *Service) UpdateProfile(ctx context.Context, userID string, req *fitness
 			return failed(fitnessResp.WechatServiceError, "昵称安全审核暂时不可用")
 		}
 		if status != "approved" {
-			return failed(fitnessResp.ContentRejected, "昵称未通过内容安全审核")
+			return failed(fitnessResp.ContentRejected, "所填写内容含有违规信息，请修改后重试")
 		}
 		update.SetNickname(strings.TrimSpace(*req.Nickname))
 	}
@@ -955,10 +955,17 @@ func (s *Service) UpsertTodayCheckin(ctx context.Context, userID string, req *fi
 				sysstoragefile.IDIn(imageIDs...),
 				sysstoragefile.OwnerUserIDEQ(userID),
 				sysstoragefile.PurposeEQ(sysstoragefile.PurposeCheckin),
-				sysstoragefile.AuditStatusNEQ(sysstoragefile.AuditStatusRejected),
 			).All(ctx)
 		if err != nil || len(imageFiles) != len(imageIDs) {
-			return failed(fitnessResp.ResourceNotFound, "部分打卡图片不存在或未通过审核")
+			return failed(fitnessResp.ResourceNotFound, "部分打卡图片不存在")
+		}
+		for _, imageFile := range imageFiles {
+			switch imageFile.AuditStatus {
+			case sysstoragefile.AuditStatusRejected:
+				return failed(fitnessResp.ContentRejected, "所上传图片含有违规信息，请更换后重试")
+			case sysstoragefile.AuditStatusPending:
+				return failed(fitnessResp.ContentReviewPending, "图片正在进行内容安全检测，请稍后再试")
+			}
 		}
 	}
 	today := support.Today(support.Location(global.Cfg.System.Timezone))

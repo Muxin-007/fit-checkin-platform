@@ -5,5 +5,12 @@ services:
     image: harbor.seike.cn/fit-checkin/platform:latest
     ports:
       - "20500:20500"
+    environment:
+      FITNESS_ADMIN_KEY: ${FITNESS_ADMIN_KEY}
+      FITNESS_PUBLIC_URL: ${FITNESS_PUBLIC_URL}
+      WECHAT_APP_ID: ${WECHAT_APP_ID}
+      WECHAT_APP_SECRET: ${WECHAT_APP_SECRET}
+      WECHAT_MESSAGE_TOKEN: ${WECHAT_MESSAGE_TOKEN}
+      WECHAT_REMINDER_TEMPLATE_ID: ${WECHAT_REMINDER_TEMPLATE_ID:-}
     volumes:
       - ./uploads:/data/fitness/uploads
