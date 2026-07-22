@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>再鸽一天 · 运营台</title>
+  <link rel="stylesheet" href="./app.css">
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <div class="brand"><span>不鸽</span><strong>再鸽一天</strong><small>FITNESS OPS</small></div>
+      <nav id="nav"></nav>
+      <div class="aside-foot">轻量运营台 · MVP 1.0</div>
+    </aside>
+    <main>
+      <header>
+        <div><p id="eyebrow">OVERVIEW</p><h1 id="title">今天发生了什么</h1></div>
+        <div class="header-actions"><button id="refresh">刷新</button><button id="change-key">更换密钥</button></div>
+      </header>
+      <section id="app"><div class="loading">正在读取真实业务数据…</div></section>
+    </main>
+  </div>
+  <dialog id="key-dialog">
+    <form method="dialog">
+      <span class="dialog-mark">OPS ACCESS</span>
+      <h2>进入运营台</h2>
+      <p>请输入服务端 <code>system.admin-key</code> 配置的运营密钥。</p>
+      <input id="admin-key" type="password" autocomplete="current-password" placeholder="运营密钥">
+      <div class="dialog-actions"><button value="cancel" class="ghost">取消</button><button id="save-key" value="default">确认进入</button></div>
+    </form>
+  </dialog>
+  <div id="toast"></div>
+  <script src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+port: 20500
+router-prefix: /api
+env: release
+log:
+  level: INFO
+  module: fitness
+system:
+  router-prefix: /fitness
+  node-id: 1
+  session-ttl: 720h
+  timezone: Asia/Shanghai
+  public-url: https://api.example.com
+  admin-key: "${FITNESS_ADMIN_KEY}"
+  db:
+    driver: postgres
+    conn-cfg:
+      host: 127.0.0.1
+      port: 5432
+      username: root
+      password: root
+      database: fitness_checkin
+      schema: fitness
+  redis:
+    addr:
+      - 127.0.0.1:6379
+    password:
+    db: 0
+    operation-db: 1
+  oss:
+    type: local
+    local:
+      store-path: /data/fitness/uploads
+  wechat:
+    app-id:   
+    app-secret: ${WECHAT_APP_SECRET}
+    reminder-template-id: ${WECHAT_REMINDER_TEMPLATE_ID}
+    reminder-page: pages/index/index
+    reminder-scan-interval: 1m
+    content-security-scene: 2
+    message-token: ${WECHAT_MESSAGE_TOKEN}

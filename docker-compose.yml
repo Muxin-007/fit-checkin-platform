@@ -1,0 +1,9 @@
+services:
+  platform:
+    pull_policy: always
+    restart: always
+    image: harbor.seike.cn/fit-checkin/platform:latest
+    ports:
+      - "20500:20500"
+    volumes:
+      - ./uploads:/data/fitness/uploads

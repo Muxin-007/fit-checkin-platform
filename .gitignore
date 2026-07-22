@@ -1,0 +1,48 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# IDEA
+.idea/
+target/
+.vscode/
+
+# Bin
+bin/
+
+# Log
+log/
+
+# Proto
+*.pb.go
+
+# Dev config
+*-dev.yaml
+
+# test
+/test
+
+# MacOS file
+.DS_Store
+
+# vendor
+vendor/
+
+# uploads
+uploads/
+
+.history
+*.log
+
+.scannerwork
+
+__debug_bin*
