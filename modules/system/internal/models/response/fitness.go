@@ -12,7 +12,6 @@ type User struct {
 	Nickname        string `json:"nickname"`
 	Avatar          *File  `json:"avatar,omitempty"`
 	ReminderEnabled bool   `json:"reminderEnabled"`
-	WeightPublic    bool   `json:"weightPublic"`
 	Status          string `json:"status"`
 }
 
@@ -33,8 +32,6 @@ type Stats struct {
 type GroupSummary struct {
 	ID               string `json:"id"`
 	Name             string `json:"name"`
-	Avatar           *File  `json:"avatar,omitempty"`
-	Description      string `json:"description"`
 	MemberCount      int    `json:"memberCount"`
 	CheckedCount     int    `json:"checkedCount"`
 	CurrentChecked   bool   `json:"currentChecked"`
@@ -42,21 +39,10 @@ type GroupSummary struct {
 	MembershipStatus string `json:"membershipStatus"`
 }
 
-type Activity struct {
-	CheckinID       string `json:"checkinId"`
-	UserID          string `json:"userId"`
-	Nickname        string `json:"nickname"`
-	Avatar          *File  `json:"avatar,omitempty"`
-	ExerciseType    string `json:"exerciseType"`
-	DurationMinutes int    `json:"durationMinutes"`
-	CheckinAt       int64  `json:"checkinAt"`
-}
-
 type Home struct {
 	TodayChecked bool           `json:"todayChecked"`
 	Stats        Stats          `json:"stats"`
 	Groups       []GroupSummary `json:"groups"`
-	Activities   []Activity     `json:"activities"`
 }
 
 type Invitation struct {
@@ -64,32 +50,22 @@ type Invitation struct {
 	ExpiresAt       int64  `json:"expiresAt"`
 	GroupID         string `json:"groupId"`
 	GroupName       string `json:"groupName"`
-	GroupAvatar     *File  `json:"groupAvatar,omitempty"`
 	MemberCount     int    `json:"memberCount"`
 	WeeklyTarget    int    `json:"weeklyTarget"`
 	RequireApproval bool   `json:"requireApproval"`
 }
 
 type MemberStatus struct {
-	MemberID        string `json:"memberId"`
-	UserID          string `json:"userId"`
-	Nickname        string `json:"nickname"`
-	Avatar          *File  `json:"avatar,omitempty"`
-	Role            string `json:"role"`
-	Status          string `json:"status"`
-	Checked         bool   `json:"checked"`
-	AuditPending    bool   `json:"auditPending"`
-	CheckinID       string `json:"checkinId,omitempty"`
-	CheckinAt       int64  `json:"checkinAt,omitempty"`
-	ExerciseType    string `json:"exerciseType,omitempty"`
-	DurationMinutes int    `json:"durationMinutes,omitempty"`
-	Image           *File  `json:"image,omitempty"`
-	CurrentStreak   int    `json:"currentStreak"`
+	MemberID  string `json:"memberId"`
+	Label     string `json:"label"`
+	Role      string `json:"role"`
+	Status    string `json:"status"`
+	Checked   bool   `json:"checked"`
+	IsCurrent bool   `json:"isCurrent"`
 }
 
 type GroupDetail struct {
 	GroupSummary
-	Announcement     string         `json:"announcement"`
 	WeeklyTarget     int            `json:"weeklyTarget"`
 	ReminderTime     string         `json:"reminderTime"`
 	RequireApproval  bool           `json:"requireApproval"`
@@ -104,15 +80,9 @@ type Checkin struct {
 	Date              string         `json:"date"`
 	ExerciseType      string         `json:"exerciseType"`
 	DurationMinutes   int            `json:"durationMinutes"`
-	Content           string         `json:"content"`
-	Calories          *int           `json:"calories,omitempty"`
-	Weight            *float64       `json:"weight,omitempty"`
-	WeightPublic      bool           `json:"weightPublic"`
-	Mood              string         `json:"mood"`
 	AuditStatus       string         `json:"auditStatus"`
 	AuditDetail       string         `json:"auditDetail,omitempty"`
 	CanManage         bool           `json:"canManage"`
-	CreatedAt         int64          `json:"createdAt"`
 	Images            []File         `json:"images"`
 	ImageAuditSummary map[string]int `json:"imageAuditSummary,omitempty"`
 	GroupIDs          []string       `json:"groupIds"`

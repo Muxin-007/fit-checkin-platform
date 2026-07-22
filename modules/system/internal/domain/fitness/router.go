@@ -50,7 +50,6 @@ func InitRouter(router *gin.RouterGroup) {
 
 		auth.POST("subscriptions", api.AuthorizeSubscription)
 		auth.POST("reminders", api.ManualReminder)
-		auth.POST("reports", api.CreateReport)
 	}
 
 	admin := router.Group("admin")
@@ -64,8 +63,6 @@ func InitRouter(router *gin.RouterGroup) {
 		admin.GET("checkins", api.AdminCheckins)
 		admin.PUT("checkins/:id/audit", api.AdminAuditCheckin)
 		admin.DELETE("checkins/:id", api.AdminDeleteCheckin)
-		admin.GET("reports", api.AdminReports)
-		admin.PUT("reports/:id", api.AdminResolveReport)
 		admin.GET("reminders", api.AdminReminders)
 		admin.PUT("configs/:key", api.AdminUpdateConfig)
 	}

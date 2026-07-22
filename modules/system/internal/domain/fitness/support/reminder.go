@@ -28,7 +28,6 @@ type ReminderBatch struct {
 }
 
 type ReminderOutcome struct {
-	UserID string `json:"userId"`
 	Status string `json:"status"`
 	Reason string `json:"reason,omitempty"`
 }
@@ -42,7 +41,11 @@ func SendReminders(ctx context.Context, groupID, groupName, deadline, senderID, 
 		GroupID: groupID, GroupName: groupName, Deadline: deadline,
 		SenderID: senderID, Type: reminderType, Targets: targets,
 	}})
-	return results[groupID], err
+	outcomes := results[groupID]
+	if outcomes == nil {
+		outcomes = []ReminderOutcome{}
+	}
+	return outcomes, err
 }
 
 func SendReminderBatches(ctx context.Context, batches []ReminderBatch) (map[string][]ReminderOutcome, error) {
@@ -132,7 +135,7 @@ func SendReminderBatches(ctx context.Context, batches []ReminderBatch) (map[stri
 				}
 			}
 			alreadySent[key] = true
-			outcomes = append(outcomes, ReminderOutcome{UserID: target.UserID, Status: string(status), Reason: reason})
+			outcomes = append(outcomes, ReminderOutcome{Status: string(status), Reason: reason})
 			logs = append(logs, reminderLogData{
 				groupID: batch.GroupID, targetID: target.UserID, senderID: batch.SenderID,
 				reminderType: batch.Type, date: today, status: string(status),

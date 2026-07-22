@@ -9,6 +9,7 @@ import (
 	"errors"
 	"mime/multipart"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -164,8 +165,7 @@ func (s *Service) UpdateProfile(ctx context.Context, userID string, req *fitness
 
 func (s *Service) UpdateSettings(ctx context.Context, userID string, req *fitnessReq.UpdateSettings) *ginResp.Response {
 	update := shared.EntClient.SysUser.UpdateOneID(userID).
-		SetNillableReminderEnabled(req.ReminderEnabled).
-		SetNillableWeightPublic(req.WeightPublic)
+		SetNillableReminderEnabled(req.ReminderEnabled)
 	if _, err := update.Save(ctx); err != nil {
 		return failed(ginResp.OperationFailed, "设置保存失败")
 	}
@@ -279,9 +279,8 @@ func (s *Service) CancelAccount(ctx context.Context, userID string) *ginResp.Res
 
 func (s *Service) UploadImage(ctx context.Context, userID, purpose string, fileHeader *multipart.FileHeader) *ginResp.Response {
 	allowed := map[string]sysstoragefile.Purpose{
-		"avatar":       sysstoragefile.PurposeAvatar,
-		"group_avatar": sysstoragefile.PurposeGroupAvatar,
-		"checkin":      sysstoragefile.PurposeCheckin,
+		"avatar":  sysstoragefile.PurposeAvatar,
+		"checkin": sysstoragefile.PurposeCheckin,
 	}
 	purposeValue, ok := allowed[purpose]
 	if !ok {
@@ -417,26 +416,6 @@ func (s *Service) CreateGroup(ctx context.Context, userID string, req *fitnessRe
 	if !support.ValidReminderTime(req.ReminderTime) {
 		return failed(ginResp.ReqParameterException, "提醒时间格式应为 HH:mm")
 	}
-	auditStatus, err := s.auditUserText(ctx, userID, strings.Join([]string{req.Name, req.Description, req.Announcement}, "\n"))
-	if err != nil {
-		return failed(fitnessResp.WechatServiceError, "小组内容安全审核暂时不可用")
-	}
-	if auditStatus != "approved" {
-		return failed(fitnessResp.ContentRejected, "小组内容未通过安全审核")
-	}
-	if req.AvatarFileID != "" {
-		valid, err := shared.EntClient.SysStorageFile.Query().
-			Where(
-				sysstoragefile.IDEQ(req.AvatarFileID),
-				sysstoragefile.OwnerUserIDEQ(userID),
-				sysstoragefile.PurposeEQ(sysstoragefile.PurposeGroupAvatar),
-				sysstoragefile.AuditStatusEQ(sysstoragefile.AuditStatusApproved),
-			).
-			Exist(ctx)
-		if err != nil || !valid {
-			return failed(fitnessResp.ResourceNotFound, "小组头像文件不存在")
-		}
-	}
 	code, err := invitationCode()
 	if err != nil {
 		return failed(ginResp.OperationFailed, "邀请码生成失败")
@@ -460,10 +439,7 @@ func (s *Service) CreateGroup(ctx context.Context, userID string, req *fitnessRe
 	}()
 	group, err := tx.FitnessGroup.Create().
 		SetOwnerID(userID).
-		SetName(strings.TrimSpace(req.Name)).
-		SetNillableAvatarFileID(nonEmpty(req.AvatarFileID)).
-		SetDescription(strings.TrimSpace(req.Description)).
-		SetAnnouncement(strings.TrimSpace(req.Announcement)).
+		SetName(support.PublicGroupName(req.Name)).
 		SetWeeklyTarget(req.WeeklyTarget).
 		SetReminderTime(req.ReminderTime).
 		SetRequireApproval(req.RequireApproval).
@@ -505,51 +481,23 @@ func (s *Service) UpdateGroup(ctx context.Context, userID string, req *fitnessRe
 	if req.ReminderTime != nil && !support.ValidReminderTime(*req.ReminderTime) {
 		return failed(ginResp.ReqParameterException, "提醒时间格式应为 HH:mm")
 	}
-	textParts := make([]string, 0, 3)
-	for _, value := range []*string{req.Name, req.Description, req.Announcement} {
-		if value != nil {
-			textParts = append(textParts, *value)
-		}
-	}
-	if len(textParts) > 0 {
-		status, err := s.auditUserText(ctx, userID, strings.Join(textParts, "\n"))
-		if err != nil {
-			return failed(fitnessResp.WechatServiceError, "小组内容安全审核暂时不可用")
-		}
-		if status != "approved" {
-			return failed(fitnessResp.ContentRejected, "小组内容未通过安全审核")
-		}
+	if req.Name != nil {
+		name := support.PublicGroupName(*req.Name)
+		req.Name = &name
 	}
 	update := shared.EntClient.FitnessGroup.UpdateOneID(req.ID).
 		SetNillableName(req.Name).
-		SetNillableDescription(req.Description).
-		SetNillableAnnouncement(req.Announcement).
+		SetDescription("").
+		SetAnnouncement("").
+		ClearAvatarFileID().
 		SetNillableWeeklyTarget(req.WeeklyTarget).
 		SetNillableReminderTime(req.ReminderTime).
 		SetNillableRequireApproval(req.RequireApproval).
 		SetNillableMemberLimit(req.MemberLimit)
-	if req.AvatarFileID != nil {
-		if *req.AvatarFileID == "" {
-			update.ClearAvatarFileID()
-		} else {
-			valid, err := shared.EntClient.SysStorageFile.Query().
-				Where(
-					sysstoragefile.IDEQ(*req.AvatarFileID),
-					sysstoragefile.OwnerUserIDEQ(userID),
-					sysstoragefile.PurposeEQ(sysstoragefile.PurposeGroupAvatar),
-					sysstoragefile.AuditStatusEQ(sysstoragefile.AuditStatusApproved),
-				).
-				Exist(ctx)
-			if err != nil || !valid {
-				return failed(fitnessResp.ResourceNotFound, "小组头像文件不存在")
-			}
-			update.SetAvatarFileID(*req.AvatarFileID)
-		}
-	}
 	if _, err := update.Save(ctx); err != nil {
 		return failed(ginResp.OperationFailed, "小组保存失败")
 	}
-	if req.AvatarFileID != nil && group.AvatarFileID != "" && group.AvatarFileID != *req.AvatarFileID {
+	if group.AvatarFileID != "" {
 		if err := systemUpload.DeleteFiles(ctx, []string{group.AvatarFileID}); err != nil {
 			shared.Logger.Errorf("delete replaced group avatar failed: %s", err)
 		}
@@ -620,17 +568,12 @@ func (s *Service) ListGroups(ctx context.Context, userID string) *ginResp.Respon
 			}
 		}
 	}
-	avatarIDs := make([]string, 0, len(groups))
-	for _, group := range groups {
-		avatarIDs = append(avatarIDs, group.AvatarFileID)
-	}
-	files, _ := loadFiles(ctx, avatarIDs)
 	result := make([]fitnessResp.GroupSummary, 0, len(groups))
 	for _, group := range groups {
 		membership := roleByGroup[group.ID]
 		result = append(result, fitnessResp.GroupSummary{
-			ID: group.ID, Name: group.Name, Avatar: fileResponse(files[group.AvatarFileID]),
-			Description: group.Description, MemberCount: memberCount[group.ID],
+			ID: group.ID, Name: support.PublicGroupName(group.Name),
+			MemberCount:  memberCount[group.ID],
 			CheckedCount: checkedCount[group.ID], CurrentChecked: currentChecked[group.ID],
 			Role: string(membership.Role), MembershipStatus: string(membership.Status),
 		})
@@ -749,10 +692,9 @@ func (s *Service) InvitationPreview(ctx context.Context, code string) *ginResp.R
 	if err != nil {
 		return failed(ginResp.OperationFailed, "小组人数读取失败")
 	}
-	files, _ := loadFiles(ctx, []string{group.AvatarFileID})
 	return success(fitnessResp.Invitation{
 		Code: code, ExpiresAt: invitation.ExpiresAt.Unix(), GroupID: group.ID,
-		GroupName: group.Name, GroupAvatar: fileResponse(files[group.AvatarFileID]),
+		GroupName:   support.PublicGroupName(group.Name),
 		MemberCount: count, WeeklyTarget: group.WeeklyTarget, RequireApproval: group.RequireApproval,
 	})
 }
@@ -893,12 +835,11 @@ func (s *Service) GetGroup(ctx context.Context, userID, groupID string) *ginResp
 		if countErr != nil {
 			return failed(ginResp.OperationFailed, "小组人数读取失败")
 		}
-		files, _ := loadFiles(ctx, []string{group.AvatarFileID})
 		return success(fitnessResp.GroupDetail{
 			GroupSummary: fitnessResp.GroupSummary{
-				ID: group.ID, Name: group.Name, Avatar: fileResponse(files[group.AvatarFileID]),
-				Description: group.Description, MemberCount: count,
-				Role: string(currentMembership.Role), MembershipStatus: string(currentMembership.Status),
+				ID: group.ID, Name: support.PublicGroupName(group.Name),
+				MemberCount: count,
+				Role:        string(currentMembership.Role), MembershipStatus: string(currentMembership.Status),
 			},
 			WeeklyTarget: group.WeeklyTarget, ReminderTime: group.ReminderTime,
 			RequireApproval: group.RequireApproval, MemberLimit: group.MemberLimit,
@@ -920,32 +861,25 @@ func (s *Service) GetGroup(ctx context.Context, userID, groupID string) *ginResp
 		return failed(ginResp.OperationFailed, "成员列表读取失败")
 	}
 	userIDs := make([]string, 0, len(members))
-	memberByUser := make(map[string]*ent.FitnessGroupMember, len(members))
 	for _, member := range members {
 		userIDs = append(userIDs, member.UserID)
-		memberByUser[member.UserID] = member
-	}
-	users, err := loadUsers(ctx, userIDs)
-	if err != nil {
-		return failed(ginResp.OperationFailed, "成员资料读取失败")
-	}
-	allCheckins, err := shared.EntClient.FitnessCheckin.Query().
-		Where(fitnesscheckin.UserIDIn(userIDs...), fitnesscheckin.AuditStatusNEQ(fitnesscheckin.AuditStatusRejected)).
-		Order(ent.Asc(fitnesscheckin.FieldCheckinDate)).
-		All(ctx)
-	if err != nil {
-		return failed(ginResp.OperationFailed, "成员打卡读取失败")
 	}
 	today := support.Today(support.Location(global.Cfg.System.Timezone))
-	checkinsByUser := make(map[string][]*ent.FitnessCheckin)
+	todayCheckins, err := shared.EntClient.FitnessCheckin.Query().
+		Where(
+			fitnesscheckin.UserIDIn(userIDs...),
+			fitnesscheckin.CheckinDateEQ(today),
+			fitnesscheckin.AuditStatusNEQ(fitnesscheckin.AuditStatusRejected),
+		).
+		All(ctx)
+	if err != nil {
+		return failed(ginResp.OperationFailed, "今日完成状态读取失败")
+	}
 	todayByID := make(map[string]*ent.FitnessCheckin)
-	todayIDs := make([]string, 0)
-	for _, checkin := range allCheckins {
-		checkinsByUser[checkin.UserID] = append(checkinsByUser[checkin.UserID], checkin)
-		if checkin.CheckinDate == today {
-			todayByID[checkin.ID] = checkin
-			todayIDs = append(todayIDs, checkin.ID)
-		}
+	todayIDs := make([]string, 0, len(todayCheckins))
+	for _, checkin := range todayCheckins {
+		todayByID[checkin.ID] = checkin
+		todayIDs = append(todayIDs, checkin.ID)
 	}
 	publishedByUser := make(map[string]*ent.FitnessCheckin)
 	if len(todayIDs) > 0 {
@@ -962,82 +896,37 @@ func (s *Service) GetGroup(ctx context.Context, userID, groupID string) *ginResp
 			}
 		}
 	}
-	todayCheckinIDs := make([]string, 0, len(publishedByUser))
-	for _, checkin := range publishedByUser {
-		todayCheckinIDs = append(todayCheckinIDs, checkin.ID)
-	}
-	firstImageByCheckin := make(map[string]string)
-	if len(todayCheckinIDs) > 0 {
-		images, queryErr := shared.EntClient.FitnessCheckinImage.Query().
-			Where(fitnesscheckinimage.CheckinIDIn(todayCheckinIDs...), fitnesscheckinimage.AuditStatusEQ(fitnesscheckinimage.AuditStatusApproved)).
-			Order(ent.Asc(fitnesscheckinimage.FieldSort)).
-			All(ctx)
-		if queryErr != nil {
-			return failed(ginResp.OperationFailed, "打卡图片读取失败")
-		}
-		for _, image := range images {
-			if firstImageByCheckin[image.CheckinID] == "" {
-				firstImageByCheckin[image.CheckinID] = image.StorageFileID
-			}
-		}
-	}
-	fileIDs := []string{group.AvatarFileID}
-	for _, user := range users {
-		fileIDs = append(fileIDs, user.AvatarFileID)
-	}
-	for _, fileID := range firstImageByCheckin {
-		fileIDs = append(fileIDs, fileID)
-	}
-	files, _ := loadFiles(ctx, fileIDs)
-	now := time.Now().In(support.Location(global.Cfg.System.Timezone))
 	checked := make([]fitnessResp.MemberStatus, 0)
 	unchecked := make([]fitnessResp.MemberStatus, 0)
 	pending := make([]fitnessResp.MemberStatus, 0)
-	for _, member := range members {
-		user := users[member.UserID]
-		if user == nil {
-			continue
+	for index, member := range members {
+		label := "成员 " + strconv.Itoa(index+1)
+		if member.UserID == userID {
+			label = "我"
 		}
 		item := fitnessResp.MemberStatus{
-			MemberID: member.ID, UserID: user.ID, Nickname: user.Nickname,
-			Avatar: fileResponse(files[user.AvatarFileID]), Role: string(member.Role), Status: string(member.Status),
+			MemberID: member.ID, Label: label,
+			Role: string(member.Role), Status: string(member.Status), IsCurrent: member.UserID == userID,
 		}
-		history := checkinsByUser[user.ID]
-		dates := make([]string, 0, len(history))
-		durations := make([]int, 0, len(history))
-		for _, record := range history {
-			dates = append(dates, record.CheckinDate)
-			durations = append(durations, record.DurationMinutes)
-		}
-		item.CurrentStreak = support.CalculateStats(dates, durations, now).CurrentStreak
 		if member.Status == fitnessgroupmember.StatusPending {
 			pending = append(pending, item)
 			continue
 		}
-		if checkin := publishedByUser[user.ID]; checkin != nil {
+		if publishedByUser[member.UserID] != nil {
 			item.Checked = true
-			if checkin.AuditStatus == fitnesscheckin.AuditStatusApproved {
-				item.CheckinID = checkin.ID
-				item.CheckinAt = checkin.CreatedAt.Unix()
-				item.ExerciseType = string(checkin.ExerciseType)
-				item.DurationMinutes = checkin.DurationMinutes
-				item.Image = fileResponse(files[firstImageByCheckin[checkin.ID]])
-			} else {
-				item.AuditPending = true
-			}
 			checked = append(checked, item)
 		} else {
 			unchecked = append(unchecked, item)
 		}
 	}
 	summary := fitnessResp.GroupSummary{
-		ID: group.ID, Name: group.Name, Avatar: fileResponse(files[group.AvatarFileID]),
-		Description: group.Description, MemberCount: len(checked) + len(unchecked),
+		ID: group.ID, Name: support.PublicGroupName(group.Name),
+		MemberCount:  len(checked) + len(unchecked),
 		CheckedCount: len(checked), CurrentChecked: publishedByUser[userID] != nil,
 		Role: string(currentMembership.Role), MembershipStatus: string(currentMembership.Status),
 	}
 	return success(fitnessResp.GroupDetail{
-		GroupSummary: summary, Announcement: group.Announcement,
+		GroupSummary: summary,
 		WeeklyTarget: group.WeeklyTarget, ReminderTime: group.ReminderTime,
 		RequireApproval: group.RequireApproval, MemberLimit: group.MemberLimit,
 		CheckedMembers: checked, PendingMembers: pending, UncheckedMembers: unchecked,
@@ -1057,15 +946,9 @@ func (s *Service) UpsertTodayCheckin(ctx context.Context, userID string, req *fi
 			return failed(fitnessResp.PermissionDenied, "只能发布到已加入的小组")
 		}
 	}
-	contentStatus, err := s.auditUserText(ctx, userID, strings.Join([]string{req.Content, req.Mood}, "\n"))
-	if err != nil {
-		return failed(fitnessResp.WechatServiceError, "打卡内容安全审核暂时不可用")
-	}
-	if contentStatus == "rejected" {
-		return failed(fitnessResp.ContentRejected, "打卡文字未通过内容安全审核")
-	}
 	imageIDs := uniqueNonEmpty(req.ImageFileIDs)
 	imageFiles := make([]*ent.SysStorageFile, 0, len(imageIDs))
+	var err error
 	if len(imageIDs) > 0 {
 		imageFiles, err = shared.EntClient.SysStorageFile.Query().
 			Where(
@@ -1097,23 +980,21 @@ func (s *Service) UpsertTodayCheckin(ctx context.Context, userID string, req *fi
 			SetCheckinDate(today).
 			SetExerciseType(fitnesscheckin.ExerciseType(req.ExerciseType)).
 			SetDurationMinutes(req.DurationMinutes).
-			SetContent(strings.TrimSpace(req.Content)).
-			SetNillableCalories(req.Calories).
-			SetNillableWeight(req.Weight).
-			SetWeightPublic(req.WeightPublic).
-			SetMood(strings.TrimSpace(req.Mood)).
-			SetAuditStatus(fitnesscheckin.AuditStatus(contentStatus))
+			SetContent("").
+			SetWeightPublic(false).
+			SetMood("").
+			SetAuditStatus(fitnesscheckin.AuditStatusApproved)
 		checkin, err = create.Save(ctx)
 	} else {
 		checkin, err = tx.FitnessCheckin.UpdateOneID(existing.ID).
 			SetExerciseType(fitnesscheckin.ExerciseType(req.ExerciseType)).
 			SetDurationMinutes(req.DurationMinutes).
-			SetContent(strings.TrimSpace(req.Content)).
-			SetNillableCalories(req.Calories).
-			SetNillableWeight(req.Weight).
-			SetWeightPublic(req.WeightPublic).
-			SetMood(strings.TrimSpace(req.Mood)).
-			SetAuditStatus(fitnesscheckin.AuditStatus(contentStatus)).
+			SetContent("").
+			ClearCalories().
+			ClearWeight().
+			SetWeightPublic(false).
+			SetMood("").
+			SetAuditStatus(fitnesscheckin.AuditStatusApproved).
 			Save(ctx)
 	}
 	if err != nil {
@@ -1189,37 +1070,14 @@ func (s *Service) GetTodayCheckin(ctx context.Context, userID string) *ginResp.R
 
 func (s *Service) GetCheckin(ctx context.Context, viewerID, checkinID string) *ginResp.Response {
 	checkin, err := shared.EntClient.FitnessCheckin.Get(ctx, checkinID)
-	if err != nil {
+	if err != nil || checkin.UserID != viewerID {
 		return failed(fitnessResp.ResourceNotFound, "打卡不存在")
 	}
-	if checkin.AuditStatus == fitnesscheckin.AuditStatusRejected && checkin.UserID != viewerID {
-		return failed(fitnessResp.ResourceNotFound, "打卡不存在")
-	}
-	relations, err := shared.EntClient.FitnessCheckinGroup.Query().
-		Where(fitnesscheckingroup.CheckinIDEQ(checkin.ID)).All(ctx)
-	if err != nil {
-		return failed(ginResp.OperationFailed, "打卡发布范围读取失败")
-	}
-	groupIDs := make([]string, 0, len(relations))
-	for _, relation := range relations {
-		groupIDs = append(groupIDs, relation.GroupID)
-	}
-	if checkin.UserID != viewerID {
-		if checkin.AuditStatus != fitnesscheckin.AuditStatusApproved {
-			return failed(fitnessResp.ResourceNotFound, "打卡正在审核中")
-		}
-		visible, queryErr := shared.EntClient.FitnessGroupMember.Query().
-			Where(fitnessgroupmember.UserIDEQ(viewerID), fitnessgroupmember.GroupIDIn(groupIDs...), fitnessgroupmember.StatusEQ(fitnessgroupmember.StatusActive)).
-			Exist(ctx)
-		if queryErr != nil || !visible {
-			return failed(fitnessResp.PermissionDenied, "无权查看该打卡")
-		}
-	}
-	items, err := s.checkinResponses(ctx, []*ent.FitnessCheckin{checkin}, checkin.UserID == viewerID)
+	items, err := s.privateCheckinResponses(ctx, []*ent.FitnessCheckin{checkin})
 	if err != nil {
 		return failed(ginResp.OperationFailed, "打卡详情读取失败")
 	}
-	items[0].CanManage = checkin.UserID == viewerID
+	items[0].CanManage = true
 	return success(items[0])
 }
 
@@ -1243,7 +1101,7 @@ func (s *Service) Calendar(ctx context.Context, userID, month string) *ginResp.R
 	if err != nil {
 		return failed(ginResp.OperationFailed, "月度打卡读取失败")
 	}
-	responses, err := s.checkinResponses(ctx, items, true)
+	responses, err := s.privateCheckinResponses(ctx, items)
 	if err != nil {
 		return failed(ginResp.OperationFailed, "月度打卡详情读取失败")
 	}
@@ -1309,7 +1167,7 @@ func (s *Service) DeleteCheckin(ctx context.Context, userID, checkinID string) *
 	return success(nil)
 }
 
-func (s *Service) checkinResponses(ctx context.Context, checkins []*ent.FitnessCheckin, includePrivate bool) ([]fitnessResp.Checkin, error) {
+func (s *Service) privateCheckinResponses(ctx context.Context, checkins []*ent.FitnessCheckin) ([]fitnessResp.Checkin, error) {
 	if len(checkins) == 0 {
 		return []fitnessResp.Checkin{}, nil
 	}
@@ -1334,7 +1192,7 @@ func (s *Service) checkinResponses(ctx context.Context, checkins []*ent.FitnessC
 	}
 	groupNames := make(map[string]string, len(groups))
 	for _, group := range groups {
-		groupNames[group.ID] = group.Name
+		groupNames[group.ID] = support.PublicGroupName(group.Name)
 	}
 	imageQuery := shared.EntClient.FitnessCheckinImage.Query().Where(fitnesscheckinimage.CheckinIDIn(ids...))
 	images, err := imageQuery.Order(ent.Asc(fitnesscheckinimage.FieldSort)).All(ctx)
@@ -1355,34 +1213,22 @@ func (s *Service) checkinResponses(ctx context.Context, checkins []*ent.FitnessC
 	for _, item := range checkins {
 		responseItem := fitnessResp.Checkin{
 			ID: item.ID, Date: item.CheckinDate, ExerciseType: string(item.ExerciseType),
-			DurationMinutes: item.DurationMinutes, Content: item.Content, Calories: item.Calories,
-			WeightPublic: item.WeightPublic, Mood: item.Mood, AuditStatus: string(item.AuditStatus),
+			DurationMinutes: item.DurationMinutes, AuditStatus: string(item.AuditStatus),
 			AuditDetail: item.AuditDetail,
-			CreatedAt:   item.CreatedAt.Unix(), Images: []fitnessResp.File{},
-			GroupIDs: groupIDsByCheckin[item.ID], GroupNames: []string{},
+			Images:      []fitnessResp.File{},
+			GroupIDs:    groupIDsByCheckin[item.ID], GroupNames: []string{},
 		}
-		if includePrivate || item.WeightPublic {
-			responseItem.Weight = item.Weight
-		}
-		if includePrivate {
-			responseItem.ImageAuditSummary = map[string]int{"approved": 0, "pending": 0, "rejected": 0}
-		}
+		responseItem.ImageAuditSummary = map[string]int{"approved": 0, "pending": 0, "rejected": 0}
 		for _, groupID := range responseItem.GroupIDs {
 			if name := groupNames[groupID]; name != "" {
 				responseItem.GroupNames = append(responseItem.GroupNames, name)
 			}
 		}
 		for _, image := range imagesByCheckin[item.ID] {
-			if includePrivate {
-				responseItem.ImageAuditSummary[string(image.AuditStatus)]++
-			}
+			responseItem.ImageAuditSummary[string(image.AuditStatus)]++
 			var file *fitnessResp.File
-			if includePrivate {
-				if image.AuditStatus != fitnesscheckinimage.AuditStatusRejected {
-					file = privateFileResponse(files[image.StorageFileID])
-				}
-			} else if image.AuditStatus == fitnesscheckinimage.AuditStatusApproved {
-				file = fileResponse(files[image.StorageFileID])
+			if image.AuditStatus != fitnesscheckinimage.AuditStatusRejected {
+				file = privateFileResponse(files[image.StorageFileID])
 			}
 			if file != nil {
 				responseItem.Images = append(responseItem.Images, *file)
@@ -1418,81 +1264,10 @@ func (s *Service) Home(ctx context.Context, userID string) *ginResp.Response {
 		return groupResult
 	}
 	groups, _ := groupResult.Data.([]fitnessResp.GroupSummary)
-	memberships, err := shared.EntClient.FitnessGroupMember.Query().
-		Where(fitnessgroupmember.UserIDEQ(userID), fitnessgroupmember.StatusEQ(fitnessgroupmember.StatusActive)).
-		All(ctx)
-	if err != nil {
-		return failed(ginResp.OperationFailed, "动态小组范围读取失败")
-	}
-	groupIDs := make([]string, 0, len(memberships))
-	for _, membership := range memberships {
-		groupIDs = append(groupIDs, membership.GroupID)
-	}
-	activities := make([]fitnessResp.Activity, 0)
-	if len(groupIDs) > 0 {
-		relations, queryErr := shared.EntClient.FitnessCheckinGroup.Query().
-			Where(fitnesscheckingroup.GroupIDIn(groupIDs...)).
-			Order(ent.Desc(fitnesscheckingroup.FieldCreatedAt)).
-			Limit(40).
-			All(ctx)
-		if queryErr != nil {
-			return failed(ginResp.OperationFailed, "最近动态读取失败")
-		}
-		recentIDs := make([]string, 0, 10)
-		seen := make(map[string]struct{})
-		for _, relation := range relations {
-			if _, exists := seen[relation.CheckinID]; exists {
-				continue
-			}
-			seen[relation.CheckinID] = struct{}{}
-			recentIDs = append(recentIDs, relation.CheckinID)
-			if len(recentIDs) == 10 {
-				break
-			}
-		}
-		if len(recentIDs) > 0 {
-			checkins, checkinErr := shared.EntClient.FitnessCheckin.Query().
-				Where(fitnesscheckin.IDIn(recentIDs...), fitnesscheckin.AuditStatusEQ(fitnesscheckin.AuditStatusApproved)).
-				All(ctx)
-			if checkinErr != nil {
-				return failed(ginResp.OperationFailed, "动态内容读取失败")
-			}
-			checkinByID := make(map[string]*ent.FitnessCheckin, len(checkins))
-			ownerIDs := make([]string, 0, len(checkins))
-			for _, item := range checkins {
-				checkinByID[item.ID] = item
-				ownerIDs = append(ownerIDs, item.UserID)
-			}
-			users, userErr := loadUsers(ctx, ownerIDs)
-			if userErr != nil {
-				return failed(ginResp.OperationFailed, "动态用户读取失败")
-			}
-			avatarIDs := make([]string, 0, len(users))
-			for _, user := range users {
-				avatarIDs = append(avatarIDs, user.AvatarFileID)
-			}
-			files, _ := loadFiles(ctx, avatarIDs)
-			for _, id := range recentIDs {
-				item := checkinByID[id]
-				if item == nil {
-					continue
-				}
-				user := users[item.UserID]
-				if user == nil {
-					continue
-				}
-				activities = append(activities, fitnessResp.Activity{
-					CheckinID: item.ID, UserID: user.ID, Nickname: user.Nickname,
-					Avatar: fileResponse(files[user.AvatarFileID]), ExerciseType: string(item.ExerciseType),
-					DurationMinutes: item.DurationMinutes, CheckinAt: item.CreatedAt.Unix(),
-				})
-			}
-		}
-	}
 	return success(fitnessResp.Home{
 		TodayChecked: todayChecked,
 		Stats:        support.CalculateStats(dates, durations, time.Now().In(location)),
-		Groups:       groups, Activities: activities,
+		Groups:       groups,
 	})
 }
 
@@ -1561,12 +1336,22 @@ func (s *Service) ManualReminder(ctx context.Context, userID string, req *fitnes
 			}
 		}
 	} else {
-		if req.TargetUserID == "" {
+		if req.TargetMemberID == "" {
 			return failed(ginResp.ReqParameterException, "请选择提醒成员")
+		}
+		targetMember, queryErr := shared.EntClient.FitnessGroupMember.Query().
+			Where(
+				fitnessgroupmember.IDEQ(req.TargetMemberID),
+				fitnessgroupmember.GroupIDEQ(group.ID),
+				fitnessgroupmember.StatusEQ(fitnessgroupmember.StatusActive),
+			).
+			Only(ctx)
+		if queryErr != nil || targetMember.UserID == userID {
+			return failed(fitnessResp.ResourceNotFound, "提醒成员不存在")
 		}
 		found := false
 		for _, id := range unchecked {
-			if id == req.TargetUserID {
+			if id == targetMember.UserID {
 				found = true
 				break
 			}
@@ -1574,9 +1359,9 @@ func (s *Service) ManualReminder(ctx context.Context, userID string, req *fitnes
 		if !found {
 			return failed(fitnessResp.ResourceNotFound, "该成员已打卡或不在小组中")
 		}
-		targets = append(targets, support.ReminderTarget{UserID: req.TargetUserID})
+		targets = append(targets, support.ReminderTarget{UserID: targetMember.UserID})
 	}
-	outcomes, err := support.SendReminders(ctx, group.ID, group.Name, support.ReminderDeadline(group.ReminderTime), userID, "manual", targets)
+	outcomes, err := support.SendReminders(ctx, group.ID, support.PublicGroupName(group.Name), support.ReminderDeadline(group.ReminderTime), userID, "manual", targets)
 	if err != nil {
 		shared.Logger.Errorf("manual reminder failed: %s", err)
 		return failed(ginResp.OperationFailed, "提醒发送失败")
@@ -1625,68 +1410,22 @@ func uncheckedUserIDs(ctx context.Context, groupID string) ([]string, error) {
 	return result, nil
 }
 
-func (s *Service) CreateReport(ctx context.Context, userID string, req *fitnessReq.CreateReport) *ginResp.Response {
-	checkin, err := shared.EntClient.FitnessCheckin.Get(ctx, req.CheckinID)
-	if err != nil {
-		return failed(fitnessResp.ResourceNotFound, "打卡不存在")
-	}
-	if checkin.UserID == userID {
-		return failed(ginResp.ReqParameterException, "不能举报自己的打卡")
-	}
-	relations, err := shared.EntClient.FitnessCheckinGroup.Query().
-		Where(fitnesscheckingroup.CheckinIDEQ(checkin.ID)).All(ctx)
-	if err != nil {
-		return failed(ginResp.OperationFailed, "打卡范围读取失败")
-	}
-	groupIDs := make([]string, 0, len(relations))
-	for _, relation := range relations {
-		groupIDs = append(groupIDs, relation.GroupID)
-	}
-	visible, err := shared.EntClient.FitnessGroupMember.Query().
-		Where(
-			fitnessgroupmember.UserIDEQ(userID),
-			fitnessgroupmember.GroupIDIn(groupIDs...),
-			fitnessgroupmember.StatusEQ(fitnessgroupmember.StatusActive),
-		).Exist(ctx)
-	if err != nil || !visible {
-		return failed(fitnessResp.PermissionDenied, "无权举报该内容")
-	}
-	status, auditErr := s.auditUserText(ctx, userID, req.Reason)
-	if auditErr != nil {
-		return failed(fitnessResp.WechatServiceError, "举报内容安全审核暂时不可用")
-	}
-	if status == "rejected" {
-		return failed(fitnessResp.ContentRejected, "举报说明未通过安全审核")
-	}
-	duplicate, err := shared.EntClient.FitnessContentReport.Query().
-		Where(
-			fitnesscontentreport.ReporterUserIDEQ(userID),
-			fitnesscontentreport.CheckinIDEQ(req.CheckinID),
-			fitnesscontentreport.StatusEQ(fitnesscontentreport.StatusPending),
-		).
-		Exist(ctx)
-	if err != nil {
-		return failed(ginResp.OperationFailed, "举报状态读取失败")
-	}
-	if duplicate {
-		return failed(ginResp.ReqParameterException, "你已经举报过这条内容")
-	}
-	if _, err = shared.EntClient.FitnessContentReport.Create().
-		SetReporterUserID(userID).SetCheckinID(req.CheckinID).SetReason(strings.TrimSpace(req.Reason)).
-		Save(ctx); err != nil {
-		return failed(ginResp.OperationFailed, "举报提交失败")
-	}
-	return success(nil)
-}
-
 func (s *Service) PublicConfig(ctx context.Context) *ginResp.Response {
 	items, err := shared.EntClient.FitnessConfig.Query().All(ctx)
 	if err != nil {
 		return failed(ginResp.OperationFailed, "产品配置读取失败")
 	}
-	result := make(map[string]string, len(items))
+	publicKeys := map[string]bool{
+		"defaultReminderTime": true,
+		"exerciseTypes":       true,
+		"userAgreement":       true,
+		"privacyPolicy":       true,
+	}
+	result := make(map[string]string, len(publicKeys)+1)
 	for _, item := range items {
-		result[item.Key] = item.Value
+		if publicKeys[item.Key] {
+			result[item.Key] = item.Value
+		}
 	}
 	result["reminderTemplateId"] = global.Cfg.System.Wechat.ReminderTemplateID
 	return success(result)
@@ -1719,11 +1458,6 @@ func (s *Service) AdminDashboard(ctx context.Context) *ginResp.Response {
 	if err != nil {
 		return failed(ginResp.OperationFailed, "今日打卡统计失败")
 	}
-	pendingReports, err := shared.EntClient.FitnessContentReport.Query().
-		Where(fitnesscontentreport.StatusEQ(fitnesscontentreport.StatusPending)).Count(ctx)
-	if err != nil {
-		return failed(ginResp.OperationFailed, "举报统计失败")
-	}
 	reminders, err := shared.EntClient.FitnessReminderLog.Query().
 		Where(fitnessreminderlog.ReminderDateEQ(today), fitnessreminderlog.StatusEQ(fitnessreminderlog.StatusSent)).Count(ctx)
 	if err != nil {
@@ -1731,7 +1465,7 @@ func (s *Service) AdminDashboard(ctx context.Context) *ginResp.Response {
 	}
 	return success(map[string]int{
 		"users": users, "groups": groups, "todayCheckins": checkins,
-		"pendingReports": pendingReports, "todayReminders": reminders,
+		"todayReminders": reminders,
 	})
 }
 
@@ -1812,11 +1546,9 @@ func (s *Service) AdminGroups(ctx context.Context, req *fitnessReq.AdminPage) *g
 	}
 	groupIDs := make([]string, 0, len(groups))
 	ownerIDs := make([]string, 0, len(groups))
-	avatarIDs := make([]string, 0, len(groups))
 	for _, group := range groups {
 		groupIDs = append(groupIDs, group.ID)
 		ownerIDs = append(ownerIDs, group.OwnerID)
-		avatarIDs = append(avatarIDs, group.AvatarFileID)
 	}
 	members, err := shared.EntClient.FitnessGroupMember.Query().
 		Where(fitnessgroupmember.GroupIDIn(groupIDs...), fitnessgroupmember.StatusEQ(fitnessgroupmember.StatusActive)).All(ctx)
@@ -1828,7 +1560,6 @@ func (s *Service) AdminGroups(ctx context.Context, req *fitnessReq.AdminPage) *g
 		memberCounts[member.GroupID]++
 	}
 	owners, _ := loadUsers(ctx, ownerIDs)
-	files, _ := loadFiles(ctx, avatarIDs)
 	items := make([]map[string]any, 0, len(groups))
 	for _, group := range groups {
 		ownerName := ""
@@ -1836,8 +1567,8 @@ func (s *Service) AdminGroups(ctx context.Context, req *fitnessReq.AdminPage) *g
 			ownerName = owner.Nickname
 		}
 		items = append(items, map[string]any{
-			"id": group.ID, "name": group.Name, "avatar": fileResponse(files[group.AvatarFileID]),
-			"description": group.Description, "ownerId": group.OwnerID, "ownerName": ownerName,
+			"id": group.ID, "name": support.PublicGroupName(group.Name),
+			"ownerId": group.OwnerID, "ownerName": ownerName,
 			"memberCount": memberCounts[group.ID], "memberLimit": group.MemberLimit,
 			"weeklyTarget": group.WeeklyTarget, "status": string(group.Status), "createdAt": group.CreatedAt.Unix(),
 		})
@@ -1908,7 +1639,7 @@ func (s *Service) AdminCheckins(ctx context.Context, req *fitnessReq.AdminPage) 
 	if err != nil {
 		return failed(ginResp.OperationFailed, "打卡列表读取失败")
 	}
-	responses, err := s.checkinResponses(ctx, checkins, true)
+	responses, err := s.privateCheckinResponses(ctx, checkins)
 	if err != nil {
 		return failed(ginResp.OperationFailed, "打卡详情读取失败")
 	}
@@ -1947,54 +1678,6 @@ func (s *Service) AdminAuditCheckin(ctx context.Context, checkinID string, req *
 			return failed(fitnessResp.ResourceNotFound, "打卡不存在")
 		}
 		return failed(ginResp.OperationFailed, "打卡审核状态保存失败")
-	}
-	return success(nil)
-}
-
-func (s *Service) AdminReports(ctx context.Context, req *fitnessReq.AdminPage) *ginResp.Response {
-	page, pageSize, limit, offset := pageValues(req.Page, req.PageSize)
-	query := shared.EntClient.FitnessContentReport.Query()
-	if req.Status != "" {
-		query = query.Where(fitnesscontentreport.StatusEQ(fitnesscontentreport.Status(req.Status)))
-	}
-	total, err := query.Clone().Count(ctx)
-	if err != nil {
-		return failed(ginResp.OperationFailed, "举报数量读取失败")
-	}
-	reports, err := query.Order(ent.Desc(fitnesscontentreport.FieldCreatedAt)).Offset(offset).Limit(limit).All(ctx)
-	if err != nil {
-		return failed(ginResp.OperationFailed, "举报列表读取失败")
-	}
-	userIDs := make([]string, 0, len(reports))
-	for _, report := range reports {
-		userIDs = append(userIDs, report.ReporterUserID)
-	}
-	users, _ := loadUsers(ctx, userIDs)
-	items := make([]map[string]any, 0, len(reports))
-	for _, report := range reports {
-		reporter := ""
-		if user := users[report.ReporterUserID]; user != nil {
-			reporter = user.Nickname
-		}
-		items = append(items, map[string]any{
-			"id": report.ID, "checkinId": report.CheckinID, "reporterUserId": report.ReporterUserID,
-			"reporterName": reporter, "reason": report.Reason, "status": string(report.Status),
-			"resolution": report.Resolution, "createdAt": report.CreatedAt.Unix(),
-		})
-	}
-	return success(fitnessResp.Page[map[string]any]{List: items, Total: total, Page: page, PageSize: pageSize})
-}
-
-func (s *Service) AdminResolveReport(ctx context.Context, reportID string, req *fitnessReq.ResolveReport) *ginResp.Response {
-	if _, err := shared.EntClient.FitnessContentReport.UpdateOneID(reportID).
-		SetStatus(fitnesscontentreport.Status(req.Status)).
-		SetHandlerUserID("operator").
-		SetResolution(strings.TrimSpace(req.Resolution)).
-		Save(ctx); err != nil {
-		if ent.IsNotFound(err) {
-			return failed(fitnessResp.ResourceNotFound, "举报不存在")
-		}
-		return failed(ginResp.OperationFailed, "举报处理失败")
 	}
 	return success(nil)
 }
@@ -2043,7 +1726,7 @@ func (s *Service) AdminReminders(ctx context.Context, req *fitnessReq.AdminPage)
 
 func (s *Service) AdminUpdateConfig(ctx context.Context, key string, req *fitnessReq.UpdateConfig) *ginResp.Response {
 	allowed := map[string]bool{
-		"announcement": true, "defaultReminderTime": true, "exerciseTypes": true,
+		"defaultReminderTime": true, "exerciseTypes": true,
 		"userAgreement": true, "privacyPolicy": true,
 	}
 	if !allowed[key] {

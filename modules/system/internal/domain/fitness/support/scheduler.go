@@ -21,7 +21,6 @@ import (
 )
 
 var defaultConfigs = map[string]string{
-	"announcement":        "",
 	"defaultReminderTime": "20:00",
 	"exerciseTypes": mustJSON([]map[string]string{
 		{"value": "running", "label": "跑步"},
@@ -34,8 +33,8 @@ var defaultConfigs = map[string]string{
 		{"value": "rope", "label": "跳绳"},
 		{"value": "other", "label": "其他"},
 	}),
-	"userAgreement": "欢迎使用「再鸽一天」。请记录真实、合法的运动内容，不发布违法违规或侵害他人权益的信息。你可以随时删除自己的打卡或注销账号。平台仅提供运动记录与好友监督功能，不提供医疗诊断、治疗或康复建议。",
-	"privacyPolicy": "我们仅收集提供服务所必需的微信身份标识、昵称头像、运动打卡、小组关系和订阅授权。体重默认仅自己可见；上传内容用于展示与内容安全审核。你可以删除打卡、关闭提醒或注销账号。注销后停止提供服务并按规则清理个人数据。",
+	"userAgreement": "欢迎使用「再鸽一天」。本工具用于记录个人运动类型、时长、日期和私密照片，并在小组内同步当天是否完成。小组成员不能查看他人的运动详情或照片；平台不提供动态、评论、点赞或自由文本发布功能。本工具不提供医疗诊断、治疗或康复建议。",
+	"privacyPolicy": "我们仅收集提供服务所必需的微信身份标识、个人运动记录、私密照片、小组关系和订阅授权。运动详情和照片仅本人可查看；小组成员只能看到当天是否完成。我们不向其他用户展示昵称头像、自由文本或个人打卡内容。你可以删除打卡、关闭提醒或注销账号。",
 }
 
 func StartScheduler() {
@@ -83,10 +82,21 @@ func seedConfigs(ctx context.Context) error {
 			creates = append(creates, shared.EntClient.FitnessConfig.Create().SetKey(key).SetValue(value))
 		}
 	}
-	if len(creates) == 0 {
-		return nil
+	if len(creates) > 0 {
+		if _, err = shared.EntClient.FitnessConfig.CreateBulk(creates...).Save(ctx); err != nil {
+			return err
+		}
 	}
-	_, err = shared.EntClient.FitnessConfig.CreateBulk(creates...).Save(ctx)
+	legacyAgreement := "欢迎使用「再鸽一天」。请记录真实、合法的运动内容，不发布违法违规或侵害他人权益的信息。你可以随时删除自己的打卡或注销账号。平台仅提供运动记录与好友监督功能，不提供医疗诊断、治疗或康复建议。"
+	if _, err = shared.EntClient.FitnessConfig.Update().
+		Where(fitnessconfig.KeyEQ("userAgreement"), fitnessconfig.ValueEQ(legacyAgreement)).
+		SetValue(defaultConfigs["userAgreement"]).Save(ctx); err != nil {
+		return err
+	}
+	legacyPrivacy := "我们仅收集提供服务所必需的微信身份标识、昵称头像、运动打卡、小组关系和订阅授权。体重默认仅自己可见；上传内容用于展示与内容安全审核。你可以删除打卡、关闭提醒或注销账号。注销后停止提供服务并按规则清理个人数据。"
+	_, err = shared.EntClient.FitnessConfig.Update().
+		Where(fitnessconfig.KeyEQ("privacyPolicy"), fitnessconfig.ValueEQ(legacyPrivacy)).
+		SetValue(defaultConfigs["privacyPolicy"]).Save(ctx)
 	return err
 }
 
@@ -159,7 +169,7 @@ func runScheduledReminders(ctx context.Context) {
 	batches := make([]ReminderBatch, 0, len(groups))
 	for _, group := range groups {
 		batches = append(batches, ReminderBatch{
-			GroupID: group.ID, GroupName: group.Name, Deadline: ReminderDeadline(group.ReminderTime),
+			GroupID: group.ID, GroupName: PublicGroupName(group.Name), Deadline: ReminderDeadline(group.ReminderTime),
 			Type: "scheduled", Targets: targetsByGroup[group.ID],
 		})
 	}

@@ -197,13 +197,6 @@ func (a *API) ManualReminder(c *gin.Context) {
 	}
 }
 
-func (a *API) CreateReport(c *gin.Context) {
-	req, ok := bind[fitnessReq.CreateReport](c)
-	if ok {
-		a.Service.CreateReport(c, support.UserID(c), req).Ok(c)
-	}
-}
-
 func (a *API) DownloadFile(c *gin.Context) {
 	id := c.Param("id")
 	scope := c.Query("scope")
@@ -362,20 +355,6 @@ func (a *API) AdminAuditCheckin(c *gin.Context) {
 	req, ok := bind[fitnessReq.AdminCheckinAudit](c)
 	if ok {
 		a.Service.AdminAuditCheckin(c, c.Param("id"), req).Ok(c)
-	}
-}
-
-func (a *API) AdminReports(c *gin.Context) {
-	req, ok := bind[fitnessReq.AdminPage](c)
-	if ok {
-		a.Service.AdminReports(c, req).Ok(c)
-	}
-}
-
-func (a *API) AdminResolveReport(c *gin.Context) {
-	req, ok := bind[fitnessReq.ResolveReport](c)
-	if ok {
-		a.Service.AdminResolveReport(c, c.Param("id"), req).Ok(c)
 	}
 }
 

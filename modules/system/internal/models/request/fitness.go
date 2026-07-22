@@ -11,14 +11,10 @@ type UpdateProfile struct {
 
 type UpdateSettings struct {
 	ReminderEnabled *bool `json:"reminderEnabled"`
-	WeightPublic    *bool `json:"weightPublic"`
 }
 
 type CreateGroup struct {
-	Name            string `json:"name" binding:"required,max=30"`
-	AvatarFileID    string `json:"avatarFileId"`
-	Description     string `json:"description" binding:"max=200"`
-	Announcement    string `json:"announcement" binding:"max=300"`
+	Name            string `json:"name" binding:"required,oneof=日常运动小组 跑步打卡小组 健身训练小组 步行打卡小组 综合运动小组"`
 	WeeklyTarget    int    `json:"weeklyTarget" binding:"required,min=1,max=7"`
 	ReminderTime    string `json:"reminderTime" binding:"required,len=5"`
 	RequireApproval bool   `json:"requireApproval"`
@@ -27,10 +23,7 @@ type CreateGroup struct {
 
 type UpdateGroup struct {
 	ID              string  `json:"id" binding:"required"`
-	Name            *string `json:"name" binding:"omitempty,max=30"`
-	AvatarFileID    *string `json:"avatarFileId"`
-	Description     *string `json:"description" binding:"omitempty,max=200"`
-	Announcement    *string `json:"announcement" binding:"omitempty,max=300"`
+	Name            *string `json:"name" binding:"omitempty,oneof=日常运动小组 跑步打卡小组 健身训练小组 步行打卡小组 综合运动小组"`
 	WeeklyTarget    *int    `json:"weeklyTarget" binding:"omitempty,min=1,max=7"`
 	ReminderTime    *string `json:"reminderTime" binding:"omitempty,len=5"`
 	RequireApproval *bool   `json:"requireApproval"`
@@ -54,11 +47,6 @@ type ReviewMember struct {
 type UpsertCheckin struct {
 	ExerciseType    string   `json:"exerciseType" binding:"required,oneof=running walking cycling strength swimming yoga ball rope other"`
 	DurationMinutes int      `json:"durationMinutes" binding:"required,min=1,max=1440"`
-	Content         string   `json:"content" binding:"max=500"`
-	Calories        *int     `json:"calories" binding:"omitempty,min=0,max=10000"`
-	Weight          *float64 `json:"weight" binding:"omitempty,gt=0"`
-	WeightPublic    bool     `json:"weightPublic"`
-	Mood            string   `json:"mood" binding:"max=100"`
 	GroupIDs        []string `json:"groupIds" binding:"max=50"`
 	ImageFileIDs    []string `json:"imageFileIds" binding:"max=9"`
 }
@@ -69,14 +57,9 @@ type AuthorizeSubscription struct {
 }
 
 type ManualReminder struct {
-	GroupID      string `json:"groupId" binding:"required"`
-	TargetUserID string `json:"targetUserId"`
-	AllPending   bool   `json:"allPending"`
-}
-
-type CreateReport struct {
-	CheckinID string `json:"checkinId" binding:"required"`
-	Reason    string `json:"reason" binding:"required,max=300"`
+	GroupID        string `json:"groupId" binding:"required"`
+	TargetMemberID string `json:"targetMemberId"`
+	AllPending     bool   `json:"allPending"`
 }
 
 type AdminPage struct {
@@ -93,11 +76,6 @@ type AdminUserStatus struct {
 type AdminCheckinAudit struct {
 	Status string `json:"status" binding:"required,oneof=approved rejected"`
 	Detail string `json:"detail" binding:"max=300"`
-}
-
-type ResolveReport struct {
-	Status     string `json:"status" binding:"required,oneof=resolved rejected"`
-	Resolution string `json:"resolution" binding:"required,max=300"`
 }
 
 type UpdateConfig struct {

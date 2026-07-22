@@ -62,7 +62,6 @@ func userResponse(user *ent.SysUser, files map[string]*ent.SysStorageFile) fitne
 		Nickname:        user.Nickname,
 		Avatar:          avatar,
 		ReminderEnabled: user.ReminderEnabled,
-		WeightPublic:    user.WeightPublic,
 		Status:          string(user.Status),
 	}
 }
